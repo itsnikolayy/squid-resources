@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>confstrip — strip comments from configs</title>
+<style>
+  :root{
+    --bg:#1b1d23;
+    --panel:#22252d;
+    --panel-2:#1e212800;
+    --border:#2e323c;
+    --border-hi:#3a3f4b;
+    --text:#e6e8ec;
+    --muted:#868d9b;
+    --faint:#5b6270;
+    --accent:#5fb9b2;
+    --accent-dim:#3d7a76;
+    --danger:#c77b6b;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:var(--sans);font-size:14px;line-height:1.5;
+    display:flex;flex-direction:column;min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    padding:18px 22px 14px;border-bottom:1px solid var(--border);
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  }
+  h1{
+    margin:0;font-size:15px;font-weight:600;letter-spacing:.02em;
+    font-family:var(--mono);
+  }
+  h1 .hash{color:var(--accent)}
+  header .sub{color:var(--muted);font-size:12.5px}
+
+  /* signature: the reduction readout */
+  .readout{
+    margin-left:auto;display:flex;align-items:center;gap:14px;
+    font-family:var(--mono);font-size:13px;white-space:nowrap;
+  }
+  .readout .from{color:var(--muted)}
+  .readout .arrow{color:var(--faint)}
+  .readout .to{color:var(--accent);font-weight:600}
+  .readout .unit{color:var(--faint);font-size:11px}
+  .bar{
+    width:120px;height:4px;border-radius:2px;background:var(--border);
+    overflow:hidden;position:relative;flex:none;
+  }
+  .bar > i{
+    position:absolute;inset:0 auto 0 0;background:var(--accent);
+    width:0%;transition:width .18s ease;
+  }
+  @media (prefers-reduced-motion:reduce){.bar>i{transition:none}}
+
+  main{
+    flex:1;display:grid;grid-template-columns:1fr 1fr;gap:1px;
+    background:var(--border);min-height:0;
+  }
+  .pane{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+  .pane-head{
+    display:flex;align-items:center;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--border);min-height:42px;
+  }
+  .pane-head .label{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);
+  }
+  .pane-head .count{
+    font-family:var(--mono);font-size:11.5px;color:var(--faint);
+  }
+  .pane-head .spacer{margin-left:auto}
+
+  textarea{
+    flex:1;width:100%;resize:none;border:0;outline:0;
+    background:transparent;color:var(--text);
+    font-family:var(--mono);font-size:13px;line-height:1.6;
+    padding:14px;tab-size:4;white-space:pre;overflow:auto;
+  }
+  textarea::placeholder{color:var(--faint)}
+  #out{color:#c9d4d2}
+
+  button{
+    font-family:var(--sans);font-size:12.5px;color:var(--text);
+    background:var(--panel);border:1px solid var(--border-hi);
+    padding:5px 11px;border-radius:6px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;
+    transition:border-color .12s ease,background .12s ease;
+  }
+  button:hover{border-color:var(--accent-dim);background:#262a33}
+  button:active{background:#2b303a}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  button.ghost{background:transparent}
+  button.copy.done{border-color:var(--accent);color:var(--accent)}
+
+  .opt{
+    display:inline-flex;align-items:center;gap:7px;color:var(--muted);
+    font-size:12.5px;cursor:pointer;user-select:none;
+  }
+  .opt input{accent-color:var(--accent);width:14px;height:14px;margin:0}
+  .opt .note{color:var(--faint);font-size:11px}
+
+  footer{
+    padding:8px 22px;border-top:1px solid var(--border);
+    color:var(--faint);font-size:11.5px;font-family:var(--mono);
+    display:flex;gap:16px;flex-wrap:wrap;
+  }
+  footer b{color:var(--muted);font-weight:500}
+
+  @media (max-width:760px){
+    main{grid-template-columns:1fr;grid-template-rows:1fr 1fr}
+    .readout{margin-left:0;width:100%}
+    .bar{flex:1}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="hash">#</span>confstrip</h1>
+    <span class="sub">drop the comments, keep the config</span>
+    <div class="readout" id="readout" aria-live="polite">
+      <span class="from" id="r-from">0</span>
+      <span class="arrow">→</span>
+      <span class="to" id="r-to">0</span>
+      <span class="unit">lines</span>
+      <span class="bar"><i id="r-bar"></i></span>
+    </div>
+  </header>
+
+  <main>
+    <section class="pane">
+      <div class="pane-head">
+        <span class="label">paste config</span>
+        <span class="count" id="in-count">0 lines</span>
+        <span class="spacer"></span>
+        <button class="ghost" id="clear" type="button">clear</button>
+      </div>
+      <textarea id="in" spellcheck="false" autocapitalize="off" autocorrect="off"
+        placeholder="paste squid.conf here — or any config with # comments"></textarea>
+    </section>
+
+    <section class="pane">
+      <div class="pane-head">
+        <span class="label">stripped</span>
+        <span class="count" id="out-count">0 lines</span>
+        <span class="spacer"></span>
+        <label class="opt" title="Only removes ' # ...' with whitespace before the hash. Off by default because it can corrupt values that legitimately contain #.">
+          <input type="checkbox" id="trailing">
+          <span>trailing <span class="note">(risky)</span></span>
+        </label>
+        <button class="copy" id="copy" type="button">copy</button>
+      </div>
+      <textarea id="out" readonly spellcheck="false"
+        placeholder="cleaned output shows up here"></textarea>
+    </section>
+  </main>
+
+  <footer>
+    <span><b>rule:</b> drops <code>^\s*#</code> and <code>^\s*$</code> — full-line comments + blanks</span>
+    <span id="removed"><b>removed:</b> 0 lines</span>
+    <span><b>size:</b> <span id="bytes">0 B</span> in</span>
+  </footer>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+  var inEl = $("in"), outEl = $("out"), trailingEl = $("trailing");
+
+  function fmt(n){ return n.toLocaleString("en-US"); }
+  function bytes(n){
+    if(n < 1024) return n + " B";
+    if(n < 1048576) return (n/1024).toFixed(n<10240?1:0) + " KB";
+    return (n/1048576).toFixed(1) + " MB";
+  }
+
+  // core: replicate  rg -v "^\s*#|^\s*$"  (line-based)
+  function strip(text, stripTrailing){
+    var lines = text.split(/\r?\n/);
+    var out = [];
+    for(var i=0;i<lines.length;i++){
+      var line = lines[i];
+      if(/^\s*#/.test(line)) continue;   // full-line comment
+      if(/^\s*$/.test(line)) continue;   // blank / whitespace-only
+      if(stripTrailing){
+        line = line.replace(/\s+#.*$/, ""); // needs whitespace before # → safer
+        if(/^\s*$/.test(line)) continue;    // line became empty after cut
+      }
+      out.push(line);
+    }
+    return { text: out.join("\n"), kept: out.length, total: lines.length };
+  }
+
+  function run(){
+    var src = inEl.value;
+    // input line count: don't count a single trailing newline as an extra line
+    var rawLines = src === "" ? 0 : src.replace(/\r?\n$/,"").split(/\r?\n/).length;
+    var res = strip(src, trailingEl.checked);
+
+    outEl.value = res.text;
+
+    $("in-count").textContent  = fmt(rawLines) + (rawLines===1?" line":" lines");
+    $("out-count").textContent = fmt(res.kept) + (res.kept===1?" line":" lines");
+
+    var removed = Math.max(0, rawLines - res.kept);
+    $("removed").innerHTML = "<b>removed:</b> " + fmt(removed) + " lines";
+    $("bytes").textContent = bytes(new Blob([src]).size);
+
+    $("r-from").textContent = fmt(rawLines);
+    $("r-to").textContent   = fmt(res.kept);
+    var pct = rawLines > 0 ? (res.kept / rawLines) * 100 : 0;
+    $("r-bar").style.width = pct.toFixed(2) + "%";
+  }
+
+  inEl.addEventListener("input", run);
+  trailingEl.addEventListener("change", run);
+
+  $("clear").addEventListener("click", function(){
+    inEl.value = ""; run(); inEl.focus();
+  });
+
+  var copyBtn = $("copy"), copyTimer;
+  copyBtn.addEventListener("click", function(){
+    var text = outEl.value;
+    var done = function(){
+      copyBtn.classList.add("done");
+      copyBtn.textContent = "copied";
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(function(){
+        copyBtn.classList.remove("done");
+        copyBtn.textContent = "copy";
+      }, 1400);
+    };
+    var fallback = function(){
+      // works from file:// or non-secure contexts where Clipboard API is unavailable
+      outEl.removeAttribute("readonly");
+      outEl.select();
+      try{ document.execCommand("copy"); done(); }catch(e){}
+      outEl.setAttribute("readonly","");
+      window.getSelection().removeAllRanges();
+    };
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  });
+
+  run();
+})();
+</script>
+</body>
+</html>
